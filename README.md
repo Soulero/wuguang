@@ -69,3 +69,4 @@ web ai 工具/img-enhancer-web/
 ## 6. 注意
 - 生产中请把真实的 Gemini 调用搬到 `/api/generate`，避免在前端暴露 Key。
 - 如果需要 WebGL/Three.js 特效，可在画布外围再加特效层，但保持导出使用 2D Canvas 保证像素对齐。
+# Auto deploy test 2026年 1月13日 星期二 20时50分43秒 CST
