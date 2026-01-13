@@ -3,7 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
-const JSON_MODEL = process.env.GEMINI_MODEL || "gemini-3-flash-preview";
+const JSON_MODEL = process.env.GEMINI_MODEL || "gemini-2.5-flash";
 const IMAGE_MODEL = process.env.IMAGE_MODEL || "gemini-3-pro-image-preview";
 const API_KEY = process.env.GEMINI_API_KEY || "";
 
@@ -196,7 +196,7 @@ ${anchorHint}
 - 不要让新增物体遮挡关键主体（比如眼睛/脸部），除非用户明确要求。
 - 必须只输出 JSON。`;
 
-  const parts = [{ inline_data: { mime_type: mimeType, data: imageBase64 } }, { text: prompt }];
+  const parts = [{ inlineData: { mimeType, data: imageBase64 } }, { text: prompt }];
 
   const data = await callGeminiAPI(
     JSON_MODEL,
@@ -257,7 +257,7 @@ Return only the image. If you cannot produce a transparent PNG, do not return an
     IMAGE_MODEL,
     [{ text: prompt }],
     {
-      responseModalities: ["IMAGE"],
+      responseModalities: ["TEXT", "IMAGE"],
       temperature: 0.2,
     },
     onLog
@@ -266,15 +266,24 @@ Return only the image. If you cannot produce a transparent PNG, do not return an
   const responseParts = data.candidates?.[0]?.content?.parts || [];
 
   for (const part of responseParts) {
-    if (part.inlineData?.data) {
-      const mimeType = part.inlineData.mimeType || "image/png";
-      const dataUrl = `data:${mimeType};base64,${part.inlineData.data}`;
+    const inlineData = (part.inlineData ?? part.inline_data) as
+      | { data?: string; mimeType?: string; mime_type?: string }
+      | undefined;
+
+    if (inlineData?.data) {
+      const mimeType = inlineData.mimeType || inlineData.mime_type || "image/png";
+      const dataUrl = `data:${mimeType};base64,${inlineData.data}`;
       const overlaySize = getPngSizeFromDataUrl(dataUrl) ?? undefined;
       return { dataUrl, overlaySize };
     }
   }
 
-  throw new Error("模型未返回图像数据");
+  const textFallback = responseParts.map((p: any) => p.text).filter(Boolean).join("\n").trim();
+  if (textFallback) {
+    throw new Error(`模型未返回图像数据，返回文本：${textFallback.slice(0, 400)}`);
+  }
+
+  throw new Error("模型未返回图像数据（请检查 IMAGE_MODEL 是否支持 IMAGE 输出）");
 }
 
 export async function POST(req: NextRequest) {
@@ -377,6 +386,12 @@ export async function POST(req: NextRequest) {
     const lowered = message.toLowerCase();
     if (lowered.includes("401") || lowered.includes("unauth")) {
       return NextResponse.json({ error: "API Key 无效或已过期", logs }, { status: 401 });
+    }
+    if (lowered.includes("403") || lowered.includes("forbidden") || lowered.includes("permission_denied")) {
+      return NextResponse.json(
+        { error: "API Key 无权限（可能 key 受限、未开通该模型或账单/配额问题）", logs },
+        { status: 403 }
+      );
     }
     if (lowered.includes("429") || lowered.includes("resource_exhausted")) {
       return NextResponse.json({ error: "API 调用次数超限，请稍后重试", logs }, { status: 429 });
